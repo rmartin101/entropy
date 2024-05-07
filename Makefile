@@ -6,4 +6,4 @@ entropy: entropy.c
 .PHONEY: clean
 
 clean:
-	rm -f emtropy *.o 
+	rm -f entropy *.o 

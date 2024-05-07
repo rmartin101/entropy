@@ -28,6 +28,9 @@
 #define UNIFORM 1
 #define NORMAL 2
 
+/* when to stop increasing the bucket count */ 
+#define MIN_ENTROPY_DIFF  (0.5)
+
 /* function to return values according to a normal disribution using 
  * the 
  * note that the generator must use a cos, sin pair in the output stream.
@@ -183,7 +186,9 @@ double compute_entropy(float *base_data_p,   /* pointer to the base data of reco
   }
   entropy = -1.0 * sum;
 
-  printf("Check, probabilities should sum to 1 %lf \n", prob_sum);
+  if (prob_sum < 0.997) { 
+    printf("Warning, check failed, probabilities should sum to 1 %lf \n", prob_sum);
+  }
   
   return entropy;
   
@@ -216,6 +221,7 @@ int main(int argc, char *argv[]) {
   int num_time_buckets;      /* the discrete histogram of time values */ 
   int num_size_buckets;      /* the discrete histogram of size values */
   
+  
   unsigned int *time_buckets;  /* holds the histogram of times */
   unsigned int *size_buckets;  /* holds the histogram of sizes */
   unsigned int t_bucket;       /* the actual time bucket ID for the time we read in */
@@ -223,8 +229,14 @@ int main(int argc, char *argv[]) {
   float time_bucket_size;      /* the range of a single time bucket */
   float size_bucket_size;      /* the range of a single size bucket */
 
-  double min_prob;               /* min prob to add to avoid nan underflow */ 
+  double min_prob;               /* min prob to add to avoid nan underflow */
+  double entropy_min_diff;        /* value to stop increasing the number of buckets */
+  int more_buckets;              /* flag if we need to increase the number of buckets */
+  int max_bucket_iterations;     /* how many times should we increase the number of buckets */ 
+  int num_iterations;            /* number of times we search for a bucket size */
+  
   double t_entropy, s_entropy;  /* the actual entropy */
+  double t_last_entropy, s_last_entropy;  /* last entropy for finding the correct number of buckets */
 
   double gen_range, gen_stdev;   /* range and std deviation for test case file */
   int distribution ;             /* distribution to use for test-case file */
@@ -243,11 +255,15 @@ int main(int argc, char *argv[]) {
   max_size = FLT_MIN ;
 
   t_entropy = s_entropy = 0.0;
+  t_last_entropy = s_last_entropy = 0; 
   min_prob = 0.0000001;
 
   gen_range = gen_stdev = 0.0;
   distribution = UNIFORM;
 
+  entropy_min_diff = MIN_ENTROPY_DIFF; 
+  more_buckets   = 1; 
+  max_bucket_iterations = 4;
   
   /* set the seed for the normal distribution generator */ 
   srand(0xDEADBEEF); // Seed the random number generator
@@ -418,10 +434,44 @@ int main(int argc, char *argv[]) {
   /* compute the actual entropy. Once for time and once for size */ 
   current_time_p = (float *) base_file_p ;
   current_size_p =  &(current_time_p[1]);  /* set to the address of the first element in a floating point array */
-  t_entropy = compute_entropy(current_time_p, highest_record, 2, time_buckets, num_time_buckets, min_time, max_time, min_prob);
-  s_entropy = compute_entropy(current_size_p, highest_record, 2, size_buckets, num_size_buckets, min_size, max_size, min_prob);
-  printf("Time entropy: %lf  Size entropy: %lf \n", t_entropy, s_entropy);
 
+
+  /* this loop increases the number of buckets until the entropy no longer increases */ 
+  num_iterations = 0;
+  t_last_entropy = s_last_entropy = 0.0;
+  while (more_buckets == 1) { 
+    t_entropy = compute_entropy(current_time_p, highest_record, 2, time_buckets, num_time_buckets, min_time, max_time, min_prob);
+    s_entropy = compute_entropy(current_size_p, highest_record, 2, size_buckets, num_size_buckets, min_size, max_size, min_prob);
+    printf("Time buckets/entropy: %d/%lf  Size buckets/entropy: %d/%lf \n", num_time_buckets,t_entropy,num_size_buckets,s_entropy);
+
+    if ( ((t_entropy - t_last_entropy) < entropy_min_diff) &&
+	 ((s_entropy - s_last_entropy) < entropy_min_diff)) {
+      more_buckets =0;
+    }
+
+    if ( num_iterations > max_bucket_iterations) {
+      more_buckets =0;      
+    }
+
+    /* update the number of iterations and remember the old entropies */ 
+    num_iterations ++;
+    t_last_entropy = t_entropy;
+    s_last_entropy = s_entropy;
+
+    /* free the old buckets and increase the size by a factor of ten */ 
+    free(time_buckets);
+    free(size_buckets);
+    num_time_buckets =num_time_buckets *10;
+    num_size_buckets =num_size_buckets *10;
+
+    /* create a new set of buckets */
+    time_buckets = malloc(num_time_buckets * sizeof(int));
+    memset((void *) time_buckets,0,num_time_buckets * sizeof(int));
+    size_buckets = malloc(num_size_buckets * sizeof(int));
+    memset((void *) size_buckets,0,num_size_buckets * sizeof(int));
+  } /* end while more buckets */
+  
+  
   /* check if the histogram sums up to the max number of elements */
   if (print_histogram == 1) {
     printf("time histogram" );
@@ -440,7 +490,8 @@ int main(int argc, char *argv[]) {
   /* Example code showing how to properly clean up to prevent memory leaks. 
    * Its not really needed in this case though, */ 
   free(time_buckets);
-  free(size_buckets);  
+  free(size_buckets);
+
   
   /* Unmap and close the file. Also not needed, but nice. */ 
   if (munmap(base_file_p, sb.st_size) == -1) {
