@@ -122,6 +122,75 @@ int genTestData(char *filename,int num_samples, int distribution, double range,d
   return 1; 
 }
 
+/* CUSTOM FUNCTION FOR PROBABILITY OCCURRENCES ENTROPY */
+double compute_my_ent(float *base_data_p,   
+                      unsigned int max_elements,   
+                      unsigned int values_per_record,
+                      double min_prob) {
+
+    unsigned int i;
+    unsigned int j;
+    float *current_record_p;
+    double max_elements_d;
+    float value;
+    double prob, sum, prob_sum, prob_entropy;
+    bool flag;
+
+    max_elements_d = (double) max_elements; /* max elements as a double, not int */
+    current_record_p = (float *) base_data_p ;
+    prob_sum = 0.0;
+    flag = true;
+
+    float *indi_vals = malloc(max_elements * sizeof(float));
+    memset((void *) indi_vals, 0, max_elements * sizeof(float));
+
+    int *vals_count = malloc(max_elements * sizeof(int));
+    memset((void *) vals_count, 0, max_elements * sizeof(int));
+
+    for (i = 0; i < max_elements; i++) {
+    
+    	value = *current_record_p;
+    	
+    	for (j = 0; j <= i; j++) {
+    		if (indi_vals[j] == value) {
+                	vals_count[j] += 1;
+                	flag = false;
+                	break;
+            }
+            
+            flag = true;     	
+    	}
+    	
+    	if (flag) {
+            	indi_vals[i] = value;
+            	vals_count[i] = vals_count[i] + 1;
+            }
+    	
+    	current_record_p += values_per_record;
+    }
+             
+    /* Calculate probability entropy */
+    i = 0;
+    sum = 0;
+    while (i < max_elements) {
+        prob = (double) (vals_count[i] / max_elements_d);
+        prob_sum = prob_sum + prob;
+
+        if (prob > min_prob) {
+            sum = sum + (prob * log2(prob));
+        }
+        
+        i++;
+    }
+
+    prob_entropy = -1.0 * sum;
+
+    if (prob_sum < 0.997) {
+        printf("Warning, probabilities should sum to 1 %lf \n", prob_sum);
+    }
+
+    return prob_entropy;
+}
 
 /* this functions take a dataset and empty histogram as input, and computes the entropy 
  * it just uses the Shannon defintion of entropy by summing up the probabilities of each
@@ -162,7 +231,7 @@ double compute_entropy(float *base_data_p,   /* pointer to the base data of reco
       printf("warning, got time bucket <0, value %0.3f resetting to zero at record %d \n",value,i);
       bucket_num =0; 
     }
-    if ((bucket_num) > num_buckets) {
+    if ((bucket_num) >= num_buckets) {
       printf("warning, got bucket > %d, value %0.3f resetting to max at record %d \n",num_buckets,value,i);
       bucket_num = (num_buckets-1) ;
     }
@@ -470,6 +539,15 @@ int main(int argc, char *argv[]) {
     size_buckets = malloc(num_size_buckets * sizeof(int));
     memset((void *) size_buckets,0,num_size_buckets * sizeof(int));
   } /* end while more buckets */
+
+
+  /* prob_entropy = compute_my_ent(current_time_p, highest_record, 2, min_prob);
+  printf("True Prob Entropy Time ::: %lf\n", prob_entropy);
+  printf("Entropy Diff. Time ::: %lf\n", (prob_entropy - t_entropy));
+  
+  prob_entropy = compute_my_ent(current_size_p, highest_record, 2, min_prob);
+  printf("True Prob Entropy Size ::: %lf\n", prob_entropy);
+  printf("Entropy Diff. Size ::: %lf\n", (prob_entropy - s_entropy)); */
   
   
   /* check if the histogram sums up to the max number of elements */
